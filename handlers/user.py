@@ -16,7 +16,7 @@ async def user_start(message: Message):
     user = message.from_user
     await db.upsert_user(user.id, user.username, user.first_name, user.last_name)
     await message.answer(
-        "👋 <b>Welcome to VeyraSupport!</b>\n\n"
+        "👋 <b>Welcome to UnkonySupport!</b>\n\n"
         "Write your question or message here — "
         "a support agent will reply shortly.\n\n"
         "Just send any text to get started.",
