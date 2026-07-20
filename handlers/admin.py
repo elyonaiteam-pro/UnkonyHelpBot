@@ -42,7 +42,7 @@ async def admin_start(message: Message, state: FSMContext):
     await state.clear()
     count = await db.chat_count()
     await message.answer(
-        f"<b>VeyraSupport — Admin Panel</b>\n\n"
+        f"<b>UnkonySupport — Admin Panel</b>\n\n"
         f"Active chats: <b>{count}</b>\n\n"
         f"Tap <b>💬 Chats</b> to see user conversations.\n"
         f"Open a chat and reply — your messages go directly to the user.",
