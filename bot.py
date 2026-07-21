@@ -62,7 +62,10 @@ async def main() -> None:
     # Start HTTP server and polling concurrently
     http_runner = await start_http_server()
     try:
-        await dp.start_polling(bot)
+        await asyncio.gather(
+            dp.start_polling(bot),
+            asyncio.sleep(float('inf'))  # Keep HTTP server alive
+        )
     finally:
         await http_runner.cleanup()
 
