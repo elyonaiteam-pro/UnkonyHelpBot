@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+import os
 import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiohttp import web
 
 from config import BOT_TOKEN, ADMIN_IDS
 from database import init_db
@@ -14,6 +16,26 @@ from handlers import admin, user
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
+
+
+async def health_check(request):
+    """Health check endpoint for Render."""
+    return web.Response(text="Bot is running", status=200)
+
+
+async def start_http_server():
+    """Start lightweight aiohttp server for Render health checks."""
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    
+    port = int(os.getenv("PORT", "10000"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    logger.info("HTTP server started on 0.0.0.0:%d", port)
+    return runner
 
 
 async def main() -> None:
@@ -36,7 +58,13 @@ async def main() -> None:
     dp.include_router(user.router)
 
     logger.info("Bot started. Admins: %s", ADMIN_IDS)
-    await dp.start_polling(bot)
+    
+    # Start HTTP server and polling concurrently
+    http_runner = await start_http_server()
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await http_runner.cleanup()
 
 
 if __name__ == "__main__":
