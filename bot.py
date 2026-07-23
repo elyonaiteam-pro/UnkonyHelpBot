@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,6 +18,15 @@ from handlers import admin, user
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
+# Render (free tier, Web Service) усыпляет сервис после ~15 минут без входящих
+# HTTP-запросов. Бот работает через polling (не webhook) — это НЕ создаёт для
+# Render входящего HTTP-трафика, значит формально сервис выглядит "неактивным"
+# и засыпает, даже если бот активно опрашивает Telegram. Self-ping реально
+# нужен именно из-за этого — без него бот через ~15 минут перестаёт отвечать
+# (это и было причиной "бот перестаёт работать сам по себе").
+_PING_INTERVAL_SECONDS = 10 * 60  # с запасом до 15-минутного порога Render
+_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "")  # Render подставляет сам
+
 
 async def health_check(request):
     """Health check endpoint for Render."""
@@ -27,15 +37,30 @@ async def start_http_server():
     """Start lightweight aiohttp server for Render health checks."""
     app = web.Application()
     app.router.add_get("/", health_check)
-    
+
     port = int(os.getenv("PORT", "10000"))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    
+
     logger.info("HTTP server started on 0.0.0.0:%d", port)
     return runner
+
+
+async def self_ping_loop() -> None:
+    """Периодически стучится сам к себе на /, чтобы Render не усыплял сервис."""
+    if not _EXTERNAL_URL:
+        logger.info("RENDER_EXTERNAL_URL не задан — self-ping выключен")
+        return
+    async with aiohttp.ClientSession() as session:
+        while True:
+            await asyncio.sleep(_PING_INTERVAL_SECONDS)
+            try:
+                async with session.get(_EXTERNAL_URL, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    logger.info("Self-ping %s -> %s", _EXTERNAL_URL, resp.status)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Self-ping не удался: %s", exc)
 
 
 async def main() -> None:
@@ -58,13 +83,13 @@ async def main() -> None:
     dp.include_router(user.router)
 
     logger.info("Bot started. Admins: %s", ADMIN_IDS)
-    
-    # Start HTTP server and polling concurrently
+
+    # Start HTTP server, polling, and self-ping concurrently
     http_runner = await start_http_server()
     try:
         await asyncio.gather(
             dp.start_polling(bot),
-            asyncio.sleep(float('inf'))  # Keep HTTP server alive
+            self_ping_loop(),
         )
     finally:
         await http_runner.cleanup()
